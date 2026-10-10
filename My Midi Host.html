@@ -1,0 +1,901 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<title>My Midi Host</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root {
+    --bg: #f2f2f7;
+    --card: #ffffff;
+    --text: #1c1c1e;
+    --muted: #6e6e73;
+    --line: #e5e5ea;
+    --accent: #0a84ff;
+    --good: #30d158;
+    --idle: #c7c7cc;
+    --danger: #ff453a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #000000;
+      --card: #1c1c1e;
+      --text: #f2f2f7;
+      --muted: #98989f;
+      --line: #2c2c2e;
+      --idle: #48484a;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 560px; margin: 0 auto; padding: 16px 16px calc(96px + env(safe-area-inset-bottom)); }
+  .tab-page[hidden] { display: none; }
+  .tabbar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+    display: flex; justify-content: center;
+    padding: 6px 16px calc(6px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--card) 88%, transparent);
+    -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+    border-top: 1px solid var(--line);
+  }
+  .tab {
+    flex: 1; max-width: 200px; display: flex; flex-direction: column; align-items: center; gap: 2px;
+    font: inherit; font-size: 11px; font-weight: 500; color: var(--muted);
+    background: none; border: 0; padding: 4px 0; cursor: pointer;
+  }
+  .tab svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 1.8;
+             stroke-linecap: round; stroke-linejoin: round; }
+  .tab.active { color: var(--accent); }
+  .octave { text-align: center; white-space: nowrap; }
+  .step {
+    font: inherit; font-size: 22px; line-height: 1; color: var(--accent); background: var(--bg);
+    border: 0; border-radius: 8px; width: 52px; height: 38px; cursor: pointer;
+  }
+  .step:disabled { opacity: .35; cursor: default; }
+  #page-keyboard:not([hidden]) {
+    display: flex; flex-direction: column;
+    min-height: calc(100dvh - 170px - env(safe-area-inset-bottom));
+  }
+  /* Phone held sideways: controls in one row, keys take all the remaining height. */
+  @media (orientation: landscape) and (max-height: 540px) {
+    body.on-keyboard main { padding-top: 8px; max-width: none; }
+    body.on-keyboard header { position: absolute; right: 16px; top: 8px; margin: 0; }
+    body.on-keyboard .install { display: none; } /* no room next to the keys; it's on the other tabs */
+    #page-keyboard .card { display: flex; margin-right: 96px; }
+    #page-keyboard .card .row { flex: 1; border-bottom: 0; padding-top: 6px; padding-bottom: 6px; min-height: 0; }
+    #page-keyboard .octave .sub, #page-keyboard .key-options .sub { display: none; }
+    #page-keyboard .card .row { padding-left: 10px; padding-right: 10px; }
+    #page-keyboard .card .row.apply-input { flex: 0 0 auto; width: auto; gap: 6px; font-size: 13px; white-space: nowrap; }
+    #page-keyboard .apply-long { display: none; }
+    #page-keyboard .apply-short { display: inline; }
+    #page-keyboard .key-options { gap: 4px; }
+    #page-keyboard .key-options select { min-width: 50px; padding: 6px 2px; }
+    #page-keyboard .segmented button { padding: 6px 6px; font-size: 13px; }
+    #page-keyboard .step { width: 40px; }
+    #page-keyboard .card .row.key-options { flex: 1; }
+    #page-keyboard:not([hidden]) { min-height: calc(100dvh - 8px - 72px - env(safe-area-inset-bottom)); }
+    .piano-wrap { padding: 10px 0 0; justify-content: stretch; }
+    .piano { flex: 1; height: auto; min-height: 140px; }
+  }
+  .key-options { gap: 8px; }
+  .apply-input { cursor: pointer; }
+  .apply-short { display: none; }
+  .segmented button { white-space: nowrap; }
+  .switch {
+    appearance: none; -webkit-appearance: none; flex: none; margin: 0; cursor: pointer;
+    width: 51px; height: 31px; border-radius: 999px; background: var(--line); position: relative;
+    transition: background .2s;
+  }
+  .switch::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 27px; height: 27px; border-radius: 50%;
+    background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.3); transition: transform .2s;
+  }
+  .switch:checked { background: var(--good); }
+  .switch:checked::after { transform: translateX(20px); }
+  .key-options label { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .key-options select { width: 100%; max-width: 160px; text-align: center; }
+  .piano-wrap { flex: 1; display: flex; flex-direction: column; justify-content: center; padding: 16px 0; }
+  .segmented { display: flex; background: var(--bg); border-radius: 9px; padding: 2px; }
+  .segmented button {
+    flex: 1; font: inherit; font-size: 14px; font-weight: 500; color: var(--text);
+    background: none; border: 0; border-radius: 7px; padding: 6px 0; cursor: pointer;
+  }
+  .segmented button.active { background: var(--card); box-shadow: 0 1px 3px rgba(0,0,0,.15); }
+  .piano {
+    position: relative; height: 260px;
+    display: flex; touch-action: none; user-select: none; -webkit-user-select: none;
+  }
+  .key {
+    flex: 1; position: relative; margin: 0 1px; border-radius: 0 0 6px 6px;
+    background: #fff; border: 1px solid #c7c7cc;
+    display: flex; align-items: flex-end; justify-content: center;
+    font-size: 9px; color: #8e8e93; padding-bottom: 6px;
+  }
+  .key.black {
+    position: absolute; top: 0; height: 60%; margin: 0; padding: 0; z-index: 2;
+    background: #1c1c1e; border-color: #000; border-radius: 0 0 4px 4px;
+  }
+  .key.down { background: var(--accent); color: #fff; }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
+  h1 { font-size: 28px; margin: 0; }
+  h1[hidden] { display: block; visibility: hidden; height: 0; }
+  h2 {
+    font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: .03em;
+    color: var(--muted); margin: 24px 4px 8px;
+  }
+  .card { background: var(--card); border-radius: 12px; overflow: hidden; }
+  .row {
+    display: flex; align-items: center; gap: 12px; width: 100%;
+    padding: 12px 16px; min-height: 48px;
+    background: none; border: 0; color: inherit; font: inherit; text-align: left;
+    border-bottom: 1px solid var(--line);
+  }
+  .row:last-child { border-bottom: 0; }
+  button.row { cursor: pointer; }
+  button.row:active { background: var(--line); }
+  .grow { flex: 1; min-width: 0; }
+  .name { overflow-wrap: anywhere; }
+  .sub { font-size: 13px; color: var(--muted); }
+  .check { color: var(--accent); font-weight: 700; visibility: hidden; }
+  .selected .check { visibility: visible; }
+  .footer { font-size: 13px; color: var(--muted); margin: 8px 4px 0; }
+  .empty { color: var(--muted); }
+  .light {
+    width: 14px; height: 14px; border-radius: 50%; flex: none;
+    background: var(--idle); transition: background .25s ease-out, box-shadow .25s ease-out;
+  }
+  .light.active { background: color-mix(in srgb, var(--good) 40%, var(--idle)); }
+  .light.flash { background: var(--good); box-shadow: 0 0 10px var(--good); transition: none; }
+  .status-title { font-weight: 600; }
+  .mono { font-variant-numeric: tabular-nums; }
+  select {
+    font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 8px; padding: 6px 10px;
+  }
+  .panic {
+    font: inherit; font-weight: 600; color: var(--danger); background: var(--card);
+    border: 0; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  }
+  .panic:active { opacity: .6; }
+  .header-actions { display: flex; gap: 8px; flex: none; }
+  .install {
+    font: inherit; font-weight: 600; color: #fff; background: var(--accent);
+    border: 0; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  }
+  .install[hidden] { display: none; }
+  .install:active { opacity: .6; }
+  .graph { padding: 16px; border-bottom: 1px solid var(--line); }
+  svg { display: block; width: 100%; height: 100%; }
+  .plot { position: relative; height: 140px; }
+  .plot.custom { height: 220px; touch-action: none; cursor: crosshair; }
+  .handle {
+    position: absolute; width: 26px; height: 26px; margin: -13px 0 0 -13px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+    pointer-events: none;
+  }
+  .custom-controls { display: block; }
+  .custom-controls[hidden] { display: none; }
+  .custom-controls .fixed-head { margin-top: 4px; }
+  .link {
+    font: inherit; font-size: 15px; color: var(--accent); background: none; border: 0;
+    padding: 8px 0 0; cursor: pointer;
+  }
+  .fixed { display: block; }
+  .fixed[hidden] { display: none; }
+  .fixed-head { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); height: 32px; margin: 0; }
+  .error { background: var(--card); border-radius: 12px; padding: 16px; margin-bottom: 12px; color: var(--danger); }
+  .error p { color: var(--text); margin: 8px 0 0; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1 id="appTitle">My Midi Host</h1>
+    <div class="header-actions">
+      <button class="install" id="installBtn" hidden title="Install My Midi Host as an app that works offline">Install</button>
+      <button class="panic" id="panic" title="Send All Notes Off on every channel">Panic</button>
+    </div>
+  </header>
+
+  <div id="error" class="error" hidden></div>
+
+  <section class="tab-page" id="page-routing">
+  <div class="card">
+    <div class="row">
+      <span class="light" id="light"></span>
+      <div class="grow">
+        <div class="status-title" id="statusTitle">Starting…</div>
+        <div class="sub mono" id="statusSub"></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Input</h2>
+  <div class="card" id="inputs"></div>
+  <p class="footer">Tap to turn inputs on or off. Several inputs can be merged.</p>
+
+  <h2>Output</h2>
+  <div class="card" id="outputs"></div>
+  <p class="footer">Tap to turn outputs on or off. Everything is sent to every output that's on.</p>
+
+  <h2>MIDI Channel</h2>
+  <div class="card">
+    <label class="row">
+      <span class="grow">Input Channel</span>
+      <select autocomplete="off" id="inputChannel"></select>
+    </label>
+    <label class="row">
+      <span class="grow">Output Channel</span>
+      <select autocomplete="off" id="channel"></select>
+    </label>
+  </div>
+  <p class="footer">Input Channel picks which channel to listen to on the input device (All listens to every channel). Everything is sent out on the Output Channel; Thru keeps the incoming channel.</p>
+
+  </section>
+
+  <section class="tab-page" id="page-velocity" hidden>
+  <div class="card">
+    <div class="graph">
+      <div class="plot" id="plot">
+      <svg viewBox="0 0 127 127" preserveAspectRatio="none" aria-label="Velocity curve graph">
+        <rect x="0" y="0" width="127" height="127" rx="4" fill="var(--line)" opacity=".5"/>
+        <line x1="0" y1="127" x2="127" y2="0" stroke="var(--muted)" stroke-width="1"
+              stroke-dasharray="3 3" vector-effect="non-scaling-stroke" opacity=".6"/>
+        <polyline id="curvePath" fill="none" stroke="var(--accent)" stroke-width="3"
+                  stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="handle" id="handle" hidden></div>
+      </div>
+    </div>
+    <div id="curves"></div>
+    <div class="row fixed" id="fixedRow" hidden>
+      <div class="grow">
+        <div class="fixed-head"><span>Fixed Velocity</span><span class="mono sub" id="fixedValue"></span></div>
+        <input type="range" autocomplete="off" id="fixedVelocity" min="1" max="127" step="1">
+      </div>
+    </div>
+    <div class="row custom-controls" id="customRow" hidden>
+      <div class="fixed-head"><span>Minimum Output</span><span class="mono sub" id="customMinValue"></span></div>
+      <input type="range" autocomplete="off" id="customMin" min="1" max="126" step="1">
+      <div class="fixed-head"><span>Maximum Output</span><span class="mono sub" id="customMaxValue"></span></div>
+      <input type="range" autocomplete="off" id="customMax" min="2" max="127" step="1">
+      <button class="link" id="customReset">Reset Custom Curve</button>
+    </div>
+  </div>
+  </section>
+
+  <section class="tab-page" id="page-keyboard" hidden>
+  <div class="card">
+    <div class="row">
+      <button class="step" id="octDown" aria-label="Octave down">−</button>
+      <div class="grow octave">
+        <div class="sub">Octave</div>
+        <div class="mono status-title" id="octaveLabel"></div>
+      </div>
+      <button class="step" id="octUp" aria-label="Octave up">+</button>
+    </div>
+    <div class="row">
+      <div class="segmented grow" role="group" aria-label="Number of octaves">
+        <button data-octaves="1">1 Octave</button>
+        <button data-octaves="2">2 Octaves</button>
+      </div>
+    </div>
+    <div class="row key-options">
+      <label><span class="sub">Start Note</span><select autocomplete="off" id="kbStart"></select></label>
+      <label><span class="sub">Transpose</span><select autocomplete="off" id="kbTranspose"></select></label>
+      <label><span class="sub">Scale</span><select autocomplete="off" id="kbScale"></select></label>
+    </div>
+    <label class="row apply-input">
+      <span class="grow"><span class="apply-long">Apply to MIDI Input</span><span class="apply-short">To Input</span></span>
+      <input type="checkbox" autocomplete="off" id="kbApplyInput" class="switch">
+    </label>
+  </div>
+  <div class="piano-wrap"><div class="piano" id="piano"></div></div>
+  </section>
+</main>
+
+<nav class="tabbar" aria-label="Pages">
+  <button class="tab" data-tab="routing">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v5M17 3v5M5 8h14v4a7 7 0 0 1-14 0zM12 19v2"/></svg>
+    <span>Routing</span>
+  </button>
+  <button class="tab" data-tab="velocity">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18M4 18C9 18 12 14 13 9s4-6 7-6"/></svg>
+    <span>Velocity</span>
+  </button>
+  <button class="tab" data-tab="keyboard">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 5h18v14H3zM8 5v14M13 5v14M18 5v14M6.5 5v8M10 5v8M15.5 5v8"/></svg>
+    <span>Keyboard</span>
+  </button>
+</nav>
+
+<script>
+(() => {
+  const CURVES = [
+    { id: "extraLow",  name: "Extra Low",  exponent: 0.35, detail: "Very little effort, a light touch gets loud notes" },
+    { id: "low",       name: "Low",        exponent: 0.6,  detail: "Less effort for loud notes" },
+    { id: "medium",    name: "Medium",     exponent: 1.0,  detail: "Linear, velocity passes through unchanged" },
+    { id: "hard",      name: "Hard",       exponent: 1.6,  detail: "More effort for loud notes" },
+    { id: "extraHard", name: "Extra Hard", exponent: 2.5,  detail: "Most effort, play hard to get loud notes" },
+    { id: "fixed",     name: "Fixed",      exponent: 1.0,  detail: "Every note is sent at the same velocity" },
+    { id: "custom",    name: "Custom",     exponent: 1.0,  detail: "Drag the point on the graph to bend the curve" },
+  ];
+  const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+
+  // ---- Settings (saved in this browser) ----
+  const defaults = { inputs: null, outputs: null, inputChannel: 0, channel: 1, curve: "medium", fixedVelocity: 127,
+                     custom: { bendX: 0.5, bendY: 0.5, minOut: 1, maxOut: 127 },
+                     kbBase: 48, kbOctaves: 2, kbStart: 0, kbTranspose: -1, kbScale: "",
+                     kbApplyInput: false };
+  let settings = { ...defaults };
+  try { settings = { ...defaults, ...JSON.parse(localStorage.getItem("midiHost") || "{}") }; } catch {}
+  // Transpose and Scale always start as none when the page opens.
+  settings.kbTranspose = -1;
+  settings.kbScale = "";
+  if (!settings.outputs && settings.output) settings.outputs = [settings.output]; // older single-output setting
+  delete settings.output;
+  settings.custom = { ...defaults.custom, ...(settings.custom || {}) };
+  const save = () => { try { localStorage.setItem("midiHost", JSON.stringify(settings)); } catch {} };
+
+  const curve = () => CURVES.find(c => c.id === settings.curve) || CURVES[2];
+  const applyCurve = (v) => {
+    if (v === 0) return 0;
+    if (settings.curve === "fixed") return Math.max(1, Math.min(127, settings.fixedVelocity));
+    if (settings.curve === "custom") return applyCustom(v);
+    const out = Math.round(Math.pow(v / 127, curve().exponent) * 127);
+    return Math.max(1, Math.min(127, out));
+  };
+
+  // Custom curve: a power curve through the draggable bend point, squeezed into min...max output.
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+  const customExponent = () => {
+    const c = settings.custom;
+    return clamp(Math.log(clamp(c.bendY, 0.02, 0.98)) / Math.log(clamp(c.bendX, 0.02, 0.98)), 0.1, 10);
+  };
+  function applyCustom(v) {
+    const c = settings.custom;
+    const low = clamp(c.minOut, 1, 127);
+    const high = clamp(c.maxOut, low, 127);
+    return clamp(Math.round(low + (high - low) * Math.pow(v / 127, customExponent())), 1, 127);
+  }
+
+  // ---- DOM ----
+  const $ = (id) => document.getElementById(id);
+  const light = $("light");
+
+  const inputChannelSelect = $("inputChannel");
+  inputChannelSelect.add(new Option("All", "0"));
+  for (let ch = 1; ch <= 16; ch++) inputChannelSelect.add(new Option(String(ch), String(ch)));
+  inputChannelSelect.value = String(settings.inputChannel);
+  inputChannelSelect.addEventListener("change", () => { settings.inputChannel = Number(inputChannelSelect.value); save(); });
+
+  const fixedSlider = $("fixedVelocity");
+  fixedSlider.value = String(settings.fixedVelocity);
+  fixedSlider.addEventListener("input", () => {
+    settings.fixedVelocity = Number(fixedSlider.value); save(); renderCurves();
+  });
+
+  const customMin = $("customMin");
+  const customMax = $("customMax");
+  customMin.addEventListener("input", () => {
+    settings.custom.minOut = Math.min(Number(customMin.value), settings.custom.maxOut - 1);
+    save(); renderCurves();
+  });
+  customMax.addEventListener("input", () => {
+    settings.custom.maxOut = Math.max(Number(customMax.value), settings.custom.minOut + 1);
+    save(); renderCurves();
+  });
+  $("customReset").addEventListener("click", () => {
+    settings.custom = { ...defaults.custom }; save(); renderCurves();
+  });
+
+  // Drag anywhere on the graph to move the bend point.
+  const plot = $("plot");
+  let dragging = false;
+  function dragBend(e) {
+    const r = plot.getBoundingClientRect();
+    const c = settings.custom;
+    const out = (1 - (e.clientY - r.top) / r.height) * 127;
+    c.bendX = clamp((e.clientX - r.left) / r.width, 0.05, 0.95);
+    c.bendY = clamp(c.maxOut > c.minOut ? (out - c.minOut) / (c.maxOut - c.minOut) : 0.5, 0.05, 0.95);
+    renderCurves();
+  }
+  plot.addEventListener("pointerdown", (e) => {
+    if (settings.curve !== "custom") return;
+    dragging = true;
+    plot.setPointerCapture(e.pointerId);
+    dragBend(e);
+  });
+  plot.addEventListener("pointermove", (e) => { if (dragging) dragBend(e); });
+  const endDrag = () => { if (dragging) { dragging = false; save(); } };
+  plot.addEventListener("pointerup", endDrag);
+  plot.addEventListener("pointercancel", endDrag);
+
+  const channelSelect = $("channel");
+  channelSelect.add(new Option("Thru", "0"));
+  for (let ch = 1; ch <= 16; ch++) channelSelect.add(new Option(String(ch), String(ch)));
+  channelSelect.value = String(settings.channel);
+  channelSelect.addEventListener("change", () => { settings.channel = Number(channelSelect.value); save(); });
+
+  // Kept as references because renderCurves moves them in and out of the list.
+  const fixedRowEl = $("fixedRow");
+  const customRowEl = $("customRow");
+
+  function renderCurves() {
+    const list = $("curves");
+    list.replaceChildren(...CURVES.flatMap(c => {
+      const b = document.createElement("button");
+      b.className = "row" + (c.id === settings.curve ? " selected" : "");
+      b.innerHTML = `<div class="grow"><div class="name"></div><div class="sub"></div></div><span class="check">✓</span>`;
+      b.querySelector(".name").textContent = c.name;
+      b.querySelector(".sub").textContent = c.detail;
+      b.addEventListener("click", () => { settings.curve = c.id; save(); renderCurves(); });
+      // Each option's settings sit right under its row.
+      if (c.id === "fixed") return [b, fixedRowEl];
+      if (c.id === "custom") return [b, customRowEl];
+      return [b];
+    }));
+    $("fixedRow").hidden = settings.curve !== "fixed";
+    $("fixedValue").textContent = String(settings.fixedVelocity);
+
+    const isCustom = settings.curve === "custom";
+    const c = settings.custom;
+    plot.classList.toggle("custom", isCustom);
+    $("customRow").hidden = !isCustom;
+    $("handle").hidden = !isCustom;
+    customMin.value = String(c.minOut);
+    customMax.value = String(c.maxOut);
+    $("customMinValue").textContent = String(c.minOut);
+    $("customMaxValue").textContent = String(c.maxOut);
+    const handleOut = c.minOut + (c.maxOut - c.minOut) * c.bendY;
+    $("handle").style.left = `${c.bendX * 100}%`;
+    $("handle").style.top = `${(1 - handleOut / 127) * 100}%`;
+    const points = [];
+    for (let v = 1; v <= 127; v++) points.push(`${v},${127 - applyCurve(v)}`);
+    $("curvePath").setAttribute("points", points.join(" "));
+  }
+
+  function deviceRow(name, selected, onClick) {
+    const b = document.createElement("button");
+    b.className = "row" + (selected ? " selected" : "");
+    b.innerHTML = `<span class="grow name"></span><span class="check">✓</span>`;
+    b.querySelector(".name").textContent = name;
+    b.addEventListener("click", onClick);
+    return b;
+  }
+
+  function emptyRow(text) {
+    const d = document.createElement("div");
+    d.className = "row empty";
+    d.textContent = text;
+    return d;
+  }
+
+  // ---- Tabs ----
+  let currentTab = "routing";
+  try { currentTab = localStorage.getItem("midiHostTab") || "routing"; } catch {}
+  function showTab(tab) {
+    currentTab = ["routing", "velocity", "keyboard"].includes(tab) ? tab : "routing";
+    $("page-routing").hidden = currentTab !== "routing";
+    $("page-velocity").hidden = currentTab !== "velocity";
+    $("page-keyboard").hidden = currentTab !== "keyboard";
+    document.body.classList.toggle("on-keyboard", currentTab === "keyboard");
+    $("appTitle").hidden = currentTab !== "routing";
+    if (currentTab !== "keyboard") releaseAllKeys();
+    document.querySelectorAll(".tab").forEach(b => {
+      const active = b.dataset.tab === currentTab;
+      b.classList.toggle("active", active);
+      b.setAttribute("aria-current", active ? "page" : "false");
+    });
+    try { localStorage.setItem("midiHostTab", currentTab); } catch {}
+    window.scrollTo(0, 0);
+  }
+  document.querySelectorAll(".tab").forEach(b => b.addEventListener("click", () => showTab(b.dataset.tab)));
+
+  // ---- MIDI ----
+  let midi = null;
+  let lastNote = null;
+
+  const inputsList = () => midi ? [...midi.inputs.values()].filter(p => p.state === "connected") : [];
+  const outputsList = () => midi ? [...midi.outputs.values()].filter(p => p.state === "connected") : [];
+  const selectedOutputs = () => outputsList().filter(o => settings.outputs.includes(o.id));
+  const isRouting = () => selectedOutputs().length > 0 && inputsList().some(i => settings.inputs.includes(i.id));
+
+  function render() {
+    const ins = inputsList();
+    const outs = outputsList();
+
+    $("inputs").replaceChildren(...(ins.length ? ins.map(i =>
+      deviceRow(i.name || "Unknown Device", settings.inputs.includes(i.id), () => {
+        settings.inputs = settings.inputs.includes(i.id)
+          ? settings.inputs.filter(id => id !== i.id)
+          : [...settings.inputs, i.id];
+        save(); connectInputs(); render();
+      })) : [emptyRow("No MIDI inputs found")]));
+
+    $("outputs").replaceChildren(...(outs.length ? outs.map(o =>
+      deviceRow(o.name || "Unknown Device", settings.outputs.includes(o.id), () => {
+        settings.outputs = settings.outputs.includes(o.id)
+          ? settings.outputs.filter(id => id !== o.id)
+          : [...settings.outputs, o.id];
+        save(); render();
+      })) : [emptyRow("No MIDI outputs found")]));
+
+    renderStatus();
+  }
+
+  function renderStatus() {
+    const routing = isRouting();
+    light.classList.toggle("active", routing);
+    $("statusTitle").textContent = routing ? "Routing" : "Not routing";
+    $("statusSub").textContent = lastNote
+      ? `Note ${lastNote.name}  ·  vel ${lastNote.inVel} → ${lastNote.outVel}  ·  ch ${lastNote.ch}`
+      : routing ? "Play a note on your keyboard" : "Pick an input and an output below";
+  }
+
+  function pickDefaults() {
+    const ins = inputsList();
+    const outs = outputsList();
+    if (!settings.inputs || !settings.inputs.length) {
+      settings.inputs = ins.length ? [ins[0].id] : [];
+    }
+    if (!settings.outputs || !settings.outputs.length) {
+      // Prefer a device that isn't the keyboard we're listening to.
+      const inputNames = ins.filter(i => settings.inputs.includes(i.id)).map(i => i.name);
+      const first = outs.find(o => !inputNames.includes(o.name)) || outs[0];
+      settings.outputs = first ? [first.id] : [];
+    }
+    save();
+  }
+
+  function connectInputs() {
+    for (const input of inputsList()) {
+      input.onmidimessage = settings.inputs.includes(input.id) ? onMessage : null;
+    }
+  }
+
+  function onMessage(event) {
+    const outs = selectedOutputs();
+    if (!outs.length) return;
+    const data = Uint8Array.from(event.data);
+    const status = data[0];
+
+    // Channel voice messages (0x80–0xEF): filter by input channel, remap channel, apply velocity curve.
+    if (status >= 0x80 && status < 0xF0) {
+      const command = status & 0xF0;
+      if (settings.inputChannel > 0 && (status & 0x0F) !== settings.inputChannel - 1) return;
+      if (command === 0x80 || command === 0x90 || command === 0xA0) {
+        data[1] = mapInputNote(data[1], status & 0x0F, command, data[2]);
+      }
+      if (settings.channel > 0) data[0] = command | (settings.channel - 1);
+      if (command === 0x90 && data.length > 2 && data[2] > 0) {
+        const inVel = data[2];
+        data[2] = applyCurve(inVel);
+        lastNote = {
+          name: NOTE_NAMES[data[1] % 12] + (Math.floor(data[1] / 12) - 1),
+          inVel, outVel: data[2], ch: (data[0] & 0x0F) + 1,
+        };
+        flash();
+      }
+    }
+
+    for (const out of outs) {
+      try { out.send(data); } catch (e) { console.warn("Send failed", out.name, e); }
+    }
+  }
+
+  let statusFrame = 0;
+  function flash() {
+    light.classList.add("flash");
+    if (!statusFrame) {
+      statusFrame = requestAnimationFrame(() => {
+        statusFrame = 0;
+        renderStatus();
+        light.classList.remove("flash");
+      });
+    }
+  }
+
+  // ---- Virtual keyboard ----
+  // Plays the selected outputs on the output channel (channel 1 when Thru).
+  // Transpose and Scale change what the keys play: Transpose E moves everything up so C plays E;
+  // adding Major makes the white keys C D E F G A B play E F# G# A B C# D#. Both are off by default.
+  const piano = $("piano");
+  const whiteKeyCount = () => settings.kbOctaves * 7 + 1; // ends on the note it starts on
+  const BLACK_PCS = [1, 3, 6, 8, 10];
+  const WHITE_DEGREE = { 0: 0, 2: 1, 4: 2, 5: 3, 7: 4, 9: 5, 11: 6 };
+  // Semitones above the transpose note for each scale degree. The white keys play the scale's notes
+  // in order, starting from the key at middle C; Pentatonic and Blues have fewer than seven notes,
+  // so an octave of white keys covers more than an octave of pitch.
+  const SCALES = [
+    { id: "major",         name: "Major",          degrees: [0, 2, 4, 5, 7, 9, 11] },
+    { id: "minor",         name: "Minor",          degrees: [0, 2, 3, 5, 7, 8, 10] },
+    { id: "dorian",        name: "Dorian",         degrees: [0, 2, 3, 5, 7, 9, 10] },
+    { id: "phrygian",      name: "Phrygian",       degrees: [0, 1, 3, 5, 7, 8, 10] },
+    { id: "lydian",        name: "Lydian",         degrees: [0, 2, 4, 6, 7, 9, 11] },
+    { id: "mixolydian",    name: "Mixolydian",     degrees: [0, 2, 4, 5, 7, 9, 10] },
+    { id: "locrian",       name: "Locrian",        degrees: [0, 1, 3, 5, 6, 8, 10] },
+    { id: "harmonicMinor", name: "Harmonic Minor", degrees: [0, 2, 3, 5, 7, 8, 11] },
+    { id: "melodicMinor",  name: "Melodic Minor",  degrees: [0, 2, 3, 5, 7, 9, 11] }, // ascending form
+    { id: "majorPentatonic", name: "Major Pentatonic", degrees: [0, 2, 4, 7, 9] },
+    { id: "minorPentatonic", name: "Minor Pentatonic", degrees: [0, 3, 5, 7, 10] },
+    { id: "blues",         name: "Blues",          degrees: [0, 3, 5, 6, 7, 10] },
+  ];
+  const NONE_LABEL = "—";
+  const heldByPointer = new Map(); // pointerId -> physical key note
+  // Fingers currently down on the keyboard, even while over the small gaps between keys,
+  // so sliding across several white keys keeps playing.
+  const activePointers = new Set();
+
+  const lowestNote = () => settings.kbBase + settings.kbStart;
+  const highestNote = () => lowestNote() + settings.kbOctaves * 12;
+  const noteLabel = (n) => NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1);
+
+  // The note a key actually sends after Transpose and Scale.
+  function soundingNote(note) {
+    const shift = Math.max(settings.kbTranspose, 0);
+    const scale = SCALES.find(sc => sc.id === settings.kbScale);
+    if (!scale) return Math.min(note + shift, 127);
+    const pc = note % 12;
+    if (WHITE_DEGREE[pc] === undefined) return Math.min(soundingNote(note - 1) + 1, 127); // black key
+    // Count white keys from middle C, then walk that many steps through the scale.
+    const steps = Math.floor(note / 12) * 7 + WHITE_DEGREE[pc] - 35;
+    const count = scale.degrees.length;
+    const octave = Math.floor(steps / count);
+    return clamp(60 + shift + octave * 12 + scale.degrees[steps - octave * count], 0, 127);
+  }
+  const heldSounding = () => new Set([...heldByPointer.values()].map(soundingNote));
+
+  // Velocity comes from where the key is touched: near the top is soft, near the bottom is loud.
+  function sendKey(note, on, velocity = 0) {
+    const ch = settings.channel > 0 ? settings.channel - 1 : 0;
+    const vel = on ? velocity : 0;
+    const out = soundingNote(note);
+    for (const port of selectedOutputs()) {
+      try { port.send([(on ? 0x90 : 0x80) | ch, out, vel]); } catch {}
+    }
+    if (on) {
+      lastNote = { name: noteLabel(out), inVel: vel, outVel: vel, ch: ch + 1 };
+      flash();
+    }
+  }
+  function markKeys() {
+    const held = new Set(heldByPointer.values());
+    piano.querySelectorAll(".key").forEach(k => k.classList.toggle("down", held.has(Number(k.dataset.note))));
+  }
+
+  function renderKeyboard() {
+    piano.replaceChildren();
+    const WHITE_KEYS = whiteKeyCount();
+    const whites = [];
+    for (let n = lowestNote(); whites.length < WHITE_KEYS; n++) {
+      if (!BLACK_PCS.includes(n % 12)) whites.push(n);
+    }
+    whites.forEach(note => {
+      const k = document.createElement("div");
+      k.className = "key";
+      k.dataset.note = note;
+      if (note % 12 === 0) k.textContent = noteLabel(note);
+      piano.append(k);
+    });
+    // A black key sits between two white keys that are a whole step apart.
+    for (let i = 0; i < whites.length - 1; i++) {
+      if (whites[i + 1] - whites[i] !== 2) continue;
+      const k = document.createElement("div");
+      k.className = "key black";
+      k.dataset.note = whites[i] + 1;
+      k.style.left = `calc(${((i + 1) / WHITE_KEYS) * 100}% - ${(0.62 / WHITE_KEYS) * 50}%)`;
+      k.style.width = `${(0.62 / WHITE_KEYS) * 100}%`;
+      piano.append(k);
+    }
+    $("octaveLabel").textContent = `${noteLabel(lowestNote())} – ${noteLabel(highestNote())}`;
+    $("octDown").disabled = lowestNote() - 12 < 0;
+    $("octUp").disabled = highestNote() + 12 > 127;
+    document.querySelectorAll("[data-octaves]").forEach(b =>
+      b.classList.toggle("active", Number(b.dataset.octaves) === settings.kbOctaves));
+    $("kbStart").value = String(settings.kbStart);
+    $("kbTranspose").value = String(settings.kbTranspose);
+    if (!SCALES.some(sc => sc.id === settings.kbScale)) settings.kbScale = "";
+    $("kbScale").value = settings.kbScale;
+    $("kbApplyInput").checked = settings.kbApplyInput;
+    markKeys();
+  }
+
+  // Keeps the whole keyboard inside MIDI's 0...127 note range.
+  function clampRange() {
+    while (highestNote() > 127) settings.kbBase -= 12;
+    while (lowestNote() < 0) settings.kbBase += 12;
+  }
+
+  // Start Note, Transpose and Scale dropdowns.
+  [0, 2, 4, 5, 7, 9, 11].forEach(pc => $("kbStart").add(new Option(NOTE_NAMES[pc], String(pc))));
+  $("kbTranspose").add(new Option(NONE_LABEL, "-1"));
+  NOTE_NAMES.forEach((name, pc) => $("kbTranspose").add(new Option(name, String(pc))));
+  $("kbScale").add(new Option(NONE_LABEL, ""));
+  SCALES.forEach(sc => $("kbScale").add(new Option(sc.name, sc.id)));
+  $("kbStart").addEventListener("change", () => {
+    releaseAllKeys(); settings.kbStart = Number($("kbStart").value); clampRange(); save(); renderKeyboard();
+  });
+  $("kbTranspose").addEventListener("change", () => {
+    releaseAllKeys(); settings.kbTranspose = Number($("kbTranspose").value); save();
+  });
+  $("kbScale").addEventListener("change", () => {
+    releaseAllKeys(); settings.kbScale = $("kbScale").value; save();
+  });
+  $("kbApplyInput").addEventListener("change", () => {
+    settings.kbApplyInput = $("kbApplyInput").checked; save();
+  });
+
+  // "Apply to MIDI Input": runs notes from the input keyboard through Transpose and Scale too.
+  // Remembers what each held key was sent as, so its note-off matches even if settings change meanwhile.
+  const inputHeld = new Map(); // channel * 128 + note -> sent note
+  function mapInputNote(note, channel, command, velocity) {
+    const slot = channel * 128 + note;
+    const current = settings.kbApplyInput ? soundingNote(note) : note;
+    if (command === 0x90 && velocity > 0) { inputHeld.set(slot, current); return current; }
+    const previous = inputHeld.get(slot);
+    if (command === 0x80 || command === 0x90) inputHeld.delete(slot);
+    return previous === undefined ? current : previous;
+  }
+
+  const keyAt = (x, y) => {
+    const el = document.elementFromPoint(x, y);
+    const key = el && el.closest ? el.closest(".key") : null;
+    if (!key || !piano.contains(key)) return null;
+    const r = key.getBoundingClientRect();
+    const depth = clamp((y - r.top) / r.height, 0, 1);
+    return { note: Number(key.dataset.note), velocity: Math.round(30 + depth * 97) };
+  };
+
+  function pressPointer(e) {
+    const hit = keyAt(e.clientX, e.clientY);
+    const note = hit ? hit.note : null;
+    const prev = heldByPointer.get(e.pointerId);
+    if (note === prev) return;
+    if (prev !== undefined) {
+      heldByPointer.delete(e.pointerId);
+      if (!heldSounding().has(soundingNote(prev))) sendKey(prev, false);
+    }
+    if (hit) { heldByPointer.set(e.pointerId, note); sendKey(note, true, hit.velocity); }
+    markKeys();
+  }
+  function releasePointer(e) {
+    activePointers.delete(e.pointerId);
+    const prev = heldByPointer.get(e.pointerId);
+    if (prev === undefined) return;
+    heldByPointer.delete(e.pointerId);
+    if (!heldSounding().has(soundingNote(prev))) sendKey(prev, false);
+    markKeys();
+  }
+  function releaseAllKeys() {
+    const sounding = heldSounding();
+    heldByPointer.clear();
+    activePointers.clear();
+    for (const n of sounding) {
+      const ch = settings.channel > 0 ? settings.channel - 1 : 0;
+      for (const port of selectedOutputs()) { try { port.send([0x80 | ch, n, 0]); } catch {} }
+    }
+    markKeys();
+  }
+
+  piano.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    activePointers.add(e.pointerId);
+    try { piano.setPointerCapture(e.pointerId); } catch {} // so the release arrives even off the keyboard
+    pressPointer(e);
+  });
+  // Slide across keys like a glissando.
+  piano.addEventListener("pointermove", (e) => { if (activePointers.has(e.pointerId)) pressPointer(e); });
+  piano.addEventListener("pointerup", releasePointer);
+  piano.addEventListener("pointercancel", releasePointer);
+  piano.addEventListener("lostpointercapture", releasePointer);
+  piano.addEventListener("contextmenu", (e) => e.preventDefault());
+
+  function shiftOctave(dir) {
+    releaseAllKeys();
+    settings.kbBase += dir * 12;
+    clampRange(); save(); renderKeyboard();
+  }
+  document.querySelectorAll("[data-octaves]").forEach(b => b.addEventListener("click", () => {
+    releaseAllKeys();
+    settings.kbOctaves = Number(b.dataset.octaves);
+    clampRange(); save(); renderKeyboard();
+  }));
+  $("octDown").addEventListener("click", () => shiftOctave(-1));
+  $("octUp").addEventListener("click", () => shiftOctave(1));
+
+  $("panic").addEventListener("click", () => {
+    for (const out of selectedOutputs()) {
+      for (let ch = 0; ch < 16; ch++) {
+        out.send([0xB0 | ch, 123, 0]); // All Notes Off
+        out.send([0xB0 | ch, 120, 0]); // All Sound Off
+      }
+    }
+  });
+
+  function showError(title, detail) {
+    const box = $("error");
+    box.hidden = false;
+    box.innerHTML = "<strong></strong><p></p>";
+    box.querySelector("strong").textContent = title;
+    box.querySelector("p").textContent = detail;
+    render();
+  }
+
+  // Keep the screen on while the page is open, so MIDI keeps flowing.
+  let wakeLock = null;
+  async function keepAwake() {
+    try {
+      if ("wakeLock" in navigator && document.visibilityState === "visible") {
+        wakeLock = await navigator.wakeLock.request("screen");
+      }
+    } catch {}
+  }
+  document.addEventListener("visibilitychange", keepAwake);
+
+  async function start() {
+    showTab(currentTab);
+    renderCurves();
+    renderKeyboard();
+    if (!navigator.requestMIDIAccess) {
+      showError("This browser can't use MIDI",
+        "Web MIDI works in Chrome on Android, Mac, Windows and Linux. It does not work on iPhone or iPad, or in Safari or Firefox for Android.");
+      return;
+    }
+    try {
+      midi = await navigator.requestMIDIAccess({ sysex: false });
+    } catch (e) {
+      showError("MIDI access was blocked",
+        "Allow MIDI when Chrome asks. If you said no, tap the icon next to the address bar, open Permissions and allow MIDI devices, then reload. The page must be opened over https or from localhost.");
+      return;
+    }
+    midi.onstatechange = () => { pickDefaults(); connectInputs(); render(); };
+    pickDefaults();
+    connectInputs();
+    render();
+    keepAwake();
+  }
+
+  start();
+
+  // Offline support: install the service worker when served from a web address (it can't run from a file).
+  if ("serviceWorker" in navigator && /^https?:$/.test(location.protocol)) {
+    navigator.serviceWorker.register("sw.js").catch((e) => console.warn("Offline support unavailable", e));
+  }
+
+  // Install button: Chrome and Edge announce when the app can be installed. Show our own button
+  // then, instead of making people find "Install app" in the browser menu. It stays hidden once
+  // installed, when already running as the installed app, and in browsers without this (Safari, Firefox).
+  const installBtn = $("installBtn");
+  let installPrompt = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    installBtn.hidden = false;
+  });
+  installBtn.addEventListener("click", async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice.catch(() => {});
+    installPrompt = null;
+    installBtn.hidden = true;
+  });
+  window.addEventListener("appinstalled", () => {
+    installPrompt = null;
+    installBtn.hidden = true;
+  });
+})();
+</script>
+</body>
+</html>
