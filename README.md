@@ -50,4 +50,6 @@ Needs a class-compliant USB MIDI device.
 ## Feedback and support
 Would you use a dedicated iOS app? Let me know by opening an issue.
 
+<a href='https://ko-fi.com/B6W628NA5R' target='_blank'><img height='36' style='border:0px;height:36px;' src='https://storage.ko-fi.com/cdn/kofi5.png?v=6' border='0' alt='Buy Me a Coffee at ko-fi.com' /></a>
+
 © 2026 Raawch. All rights reserved.
